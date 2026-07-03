@@ -1,56 +1,64 @@
-# Welcome to your Expo app 👋
+# rekordplay
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Android app that reads a rekordbox-exported USB drive and plays it with a
+Spotify-like interface. Read-only: it never writes to the USB.
 
-## Get started
+## How it works
 
-1. Install dependencies
+- **USB access** — the user picks the USB root once via Android's Storage
+  Access Framework ([src/lib/usb/saf.ts](src/lib/usb/saf.ts)). Track/artwork
+  `content://` URIs are constructed directly from the granted tree URI, so no
+  directory walking is needed.
+- **Library parsing** — `PIONEER/rekordbox/export.pdb` is parsed with a
+  Kaitai-Struct-generated parser
+  ([src/lib/pdb/RekordboxPdb.js](src/lib/pdb/RekordboxPdb.js), generated from
+  Deep-Symmetry/crate-digger's `rekordbox_pdb.ksy`). The wrapper
+  ([src/lib/pdb/parse.ts](src/lib/pdb/parse.ts)) extracts tracks, artists,
+  albums, genres, keys, playlist tree/entries, and artwork paths.
+- **Playback** — `expo-audio` plays the `content://` URIs directly
+  ([src/lib/audio/player.ts](src/lib/audio/player.ts)); queue state lives in a
+  zustand+immer store ([src/store/index.ts](src/store/index.ts)).
+- **UI** — expo-router screens, nativewind styling, shadcn-style atoms
+  (cva + cnfast) in [src/components/ui](src/components/ui).
 
-   ```bash
-   npm install
-   ```
+## Running it
 
-2. Start the app
+Requires a physical Android device (USB-OTG does not exist in emulators).
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```sh
+npm install
+npx expo run:android        # builds the dev client and installs it
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Then: plug in the USB (choose "no action" if Android asks), open the app, tap
+**Connect USB drive**, and pick the drive root in the system picker.
 
-### Other setup steps
+Background playback is enabled via the `expo-audio` config plugin, which
+requires a dev build (`expo run:android`), not Expo Go.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Regenerating the pdb parser
 
-## Learn more
+```sh
+node scripts/generate-pdb-parser.js
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+Downloads the latest `rekordbox_pdb.ksy` from crate-digger and recompiles
+`src/lib/pdb/RekordboxPdb.js`. Note: kaitai-struct's Node-only fallbacks
+(`iconv-lite`, `zlib`) are stubbed in [metro.config.js](metro.config.js);
+`parse.ts` replaces `bytesToStr` with a pure-JS decoder because Hermes has no
+`TextDecoder`.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Ejecting
 
-## Join the community
+"Eject USB" on the library screen stops playback (releasing the player's open
+file handles on the drive), closes the library, and opens Android's Storage
+settings — the actual unmount is one tap there. Apps cannot unmount volumes
+directly (privileged `MOUNT_UNMOUNT_FILESYSTEMS` permission).
 
-Join our community of developers creating universal apps.
+## Known limits (v1)
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- Read-only: no playlist editing/rearranging on the USB.
+- Android only.
+- Ignores `exportLibrary.db` (rekordbox 6.8+/7 "Device Library Plus") — the
+  legacy `export.pdb` is still written alongside it and is what we parse.
+- No waveforms/beatgrids (ANLZ files are not read).

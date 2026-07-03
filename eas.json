@@ -1,0 +1,21 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "preview": {
+      "//": "Ad-hoc / internal APK for sideloading. Build with: eas build -p android --profile preview",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "//": "Store-bound AAB. Build with: eas build -p android --profile production",
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  }
+}
