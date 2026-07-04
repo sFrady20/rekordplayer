@@ -1,20 +1,20 @@
 {
   "expo": {
-    "name": "rekordplay",
-    "slug": "rekordplay",
+    "name": "rekordplayer",
+    "slug": "rekordplayer",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon-new.png",
-    "scheme": "rekordplay",
+    "icon": "./assets/images/icon.png",
+    "scheme": "rekordplayer",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#121212",
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#061912",
-        "foregroundImage": "./assets/icon-new-foreground.png"
+        "foregroundImage": "./assets/images/adaptive-icon.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.internal.rekordplay"
+      "package": "com.internal.rekordplayer"
     },
     "web": {
       "output": "static",
@@ -25,17 +25,12 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#121212",
+          "backgroundColor": "#061912",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 180
         }
       ],
-      [
-        "expo-audio",
-        {
-          "supportsBackgroundPlayback": true
-        }
-      ]
+      "./plugins/withUsbAttach"
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,36 +1,18 @@
 import { useRouter } from 'expo-router';
 import { FolderTree, Music2, RefreshCw, Unplug } from 'lucide-react-native';
-import { Alert, FlatList, Pressable, View } from 'react-native';
+import { FlatList, Pressable, View } from 'react-native';
 import { NodeRow } from '@/components/node-row';
 import { NowPlayingBar } from '@/components/now-playing-bar';
 import { Text } from '@/components/ui/text';
 import { formatTrackCount } from '@/lib/format';
-import { connectUsb, ejectUsb } from '@/lib/usb/scan';
+import { connectUsb } from '@/lib/usb/scan';
+import { useEject } from '@/lib/usb/useEject';
 import { useAppStore } from '@/store';
 
 export default function LibraryScreen() {
   const router = useRouter();
   const library = useAppStore((s) => s.library);
-
-  const confirmEject = () => {
-    Alert.alert(
-      'Eject USB',
-      'Playback will stop and the library will close. Finish by tapping the eject button next to the drive in the Storage settings screen that opens.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Eject',
-          style: 'destructive',
-          onPress: async () => {
-            // Clear state before mounting the connect screen — it auto-reconnects
-            // on mount, which would bounce straight back here otherwise.
-            await ejectUsb();
-            router.replace('/');
-          },
-        },
-      ],
-    );
-  };
+  const confirmEject = useEject();
 
   if (!library) {
     return (

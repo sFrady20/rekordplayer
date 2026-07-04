@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { ChevronDown, Pause, Play, Shuffle, SkipBack, SkipForward } from 'lucide-react-native';
+import { ChevronDown, Pause, Play, Shuffle, SkipBack, SkipForward, Unplug } from 'lucide-react-native';
 import { Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Artwork } from '@/components/artwork';
@@ -8,10 +8,12 @@ import { Slider } from '@/components/ui/slider';
 import { Text } from '@/components/ui/text';
 import { next, previous, seekTo, toggle, toggleShuffle } from '@/lib/audio/player';
 import { formatDuration } from '@/lib/format';
+import { useEject } from '@/lib/usb/useEject';
 import { useAppStore, useCurrentTrack } from '@/store';
 
 export default function PlayerScreen() {
   const router = useRouter();
+  const eject = useEject();
   const track = useCurrentTrack();
   const status = useAppStore((s) => s.player.status);
   const position = useAppStore((s) => s.player.positionSec);
@@ -36,7 +38,9 @@ export default function PlayerScreen() {
           <Text variant="caption" className="uppercase tracking-widest">
             {queueSource || 'Now playing'}
           </Text>
-          <View style={{ width: 26 }} />
+          <Pressable hitSlop={8} onPress={eject}>
+            <Unplug size={24} color="#e5484d" />
+          </Pressable>
         </View>
 
         <View className="flex-1 items-center justify-center py-6">

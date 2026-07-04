@@ -1,4 +1,4 @@
-# rekordplay
+# rekordplayer
 
 Android app that reads a rekordbox-exported USB drive and plays it with a
 Spotify-like interface. Read-only: it never writes to the USB.
@@ -15,9 +15,18 @@ Spotify-like interface. Read-only: it never writes to the USB.
   Deep-Symmetry/crate-digger's `rekordbox_pdb.ksy`). The wrapper
   ([src/lib/pdb/parse.ts](src/lib/pdb/parse.ts)) extracts tracks, artists,
   albums, genres, keys, playlist tree/entries, and artwork paths.
-- **Playback** — `expo-audio` plays the `content://` URIs directly
-  ([src/lib/audio/player.ts](src/lib/audio/player.ts)); queue state lives in a
-  zustand+immer store ([src/store/index.ts](src/store/index.ts)).
+- **Playback** — `react-native-track-player` owns the queue and plays the
+  `content://` URIs ([src/lib/audio/player.ts](src/lib/audio/player.ts)). RNTP
+  provides a real Android MediaSession, so car/Bluetooth/lock-screen next &
+  previous change tracks, auto-advance is native, and artwork shows on the head
+  unit. Remote commands are handled in the headless
+  [playback service](src/lib/audio/service.ts), registered in
+  [index.js](index.js). Playback state mirrors into a zustand+immer store
+  ([src/store/index.ts](src/store/index.ts)) which drives the UI.
+- **USB auto-launch** — a config plugin
+  ([plugins/withUsbAttach.js](plugins/withUsbAttach.js)) adds a
+  `USB_DEVICE_ATTACHED` intent-filter so Android offers rekordplayer when a
+  drive is plugged in (set it as default to skip the picker).
 - **UI** — expo-router screens, nativewind styling, shadcn-style atoms
   (cva + cnfast) in [src/components/ui](src/components/ui).
 
@@ -30,11 +39,12 @@ npm install
 npx expo run:android        # builds the dev client and installs it
 ```
 
-Then: plug in the USB (choose "no action" if Android asks), open the app, tap
-**Connect USB drive**, and pick the drive root in the system picker.
+Then: plug in the USB (pick rekordplayer if Android offers it, or "no action"),
+open the app, tap **Connect USB drive**, and pick the drive root in the system
+picker.
 
-Background playback is enabled via the `expo-audio` config plugin, which
-requires a dev build (`expo run:android`), not Expo Go.
+Uses native modules (SAF, react-native-track-player), so it runs in a dev build
+(`expo run:android`), never Expo Go.
 
 ## Regenerating the pdb parser
 

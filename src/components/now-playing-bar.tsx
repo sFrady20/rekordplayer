@@ -1,7 +1,9 @@
 import { useRouter } from 'expo-router';
-import { Pause, Play, SkipForward } from 'lucide-react-native';
+import { Pause, Play, SkipForward, Unplug } from 'lucide-react-native';
 import { Pressable, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { next, toggle } from '@/lib/audio/player';
+import { useEject } from '@/lib/usb/useEject';
 import { useAppStore, useCurrentTrack } from '@/store';
 import { Artwork } from './artwork';
 import { Text } from './ui/text';
@@ -9,6 +11,8 @@ import { Text } from './ui/text';
 /** Mini player pinned above the bottom of library screens. */
 export function NowPlayingBar() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const eject = useEject();
   const track = useCurrentTrack();
   const status = useAppStore((s) => s.player.status);
   const position = useAppStore((s) => s.player.positionSec);
@@ -21,9 +25,11 @@ export function NowPlayingBar() {
   return (
     <Pressable
       onPress={() => router.push('/player')}
-      className="mx-2 mb-2 overflow-hidden rounded-lg bg-elevated"
+      className="mx-2 overflow-hidden rounded-lg bg-elevated"
+      // Lift the bar above the Android nav/gesture bar so its controls are tappable.
+      style={{ marginBottom: insets.bottom + 8 }}
     >
-      <View className="flex-row items-center gap-3 p-2 pr-3">
+      <View className="flex-row items-center gap-2 p-2 pr-3">
         <Artwork artworkId={track.artworkId} size={40} />
         <View className="flex-1">
           <Text numberOfLines={1} className="text-sm font-semibold">
@@ -33,6 +39,9 @@ export function NowPlayingBar() {
             {track.artist || 'Unknown artist'}
           </Text>
         </View>
+        <Pressable hitSlop={8} onPress={eject} className="p-1">
+          <Unplug size={20} color="#e5484d" />
+        </Pressable>
         <Pressable hitSlop={8} onPress={toggle} className="p-1">
           {status === 'playing' ? (
             <Pause size={24} color="#ffffff" fill="#ffffff" />

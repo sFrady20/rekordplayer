@@ -1,60 +1,119 @@
 /**
- * Singleton queue-driven playback service over expo-audio.
- * Screens dispatch intents (playQueue/toggle/next/...) and subscribe to
- * playback state through the zustand store.
+ * Queue-driven playback over react-native-track-player. RNTP owns the queue so
+ * that OS/car/Bluetooth/lock-screen next & previous map to real track changes
+ * and auto-advance is handled natively. Screens dispatch the same intents as
+ * before (playQueue/toggle/next/...) and read playback state from the store,
+ * which we keep in sync via RNTP event listeners.
  */
-import { AudioPlayer, createAudioPlayer, setAudioModeAsync } from 'expo-audio';
-import { useAppStore } from '@/store';
+import TrackPlayer, {
+  AndroidAudioContentType,
+  Capability,
+  Event,
+  State,
+  type Track as RntpTrack,
+} from 'react-native-track-player';
 import { documentUri } from '@/lib/usb/saf';
+import type { PlaybackStatus } from '@/store';
+import { useAppStore } from '@/store';
+import type { Track } from '@/types/library';
 
-let player: AudioPlayer | null = null;
-let initialized = false;
-/**
- * While a seek is settling, ExoPlayer briefly reports stale (often 0)
- * positions; ignore position updates until this timestamp so the progress
- * UI doesn't flicker back.
- */
+let setupPromise: Promise<void> | null = null;
+/** Briefly ignore progress reports right after a seek so the bar doesn't flicker. */
 let seekGuardUntil = 0;
 
-function ensurePlayer(): AudioPlayer {
-  if (player) return player;
-  player = createAudioPlayer(null, { updateInterval: 500 });
-  player.addListener('playbackStatusUpdate', (status) => {
-    const { setPlayback } = useAppStore.getState();
-    setPlayback({
-      ...(Date.now() >= seekGuardUntil ? { positionSec: status.currentTime } : {}),
-      durationSec: status.duration,
-      status: status.playing ? 'playing' : status.isBuffering ? 'loading' : 'paused',
+function mapState(state: State | undefined): PlaybackStatus {
+  switch (state) {
+    case State.Playing:
+      return 'playing';
+    case State.Paused:
+    case State.Stopped:
+    case State.Ready:
+      return 'paused';
+    case State.Loading:
+    case State.Buffering:
+      return 'loading';
+    default:
+      return 'idle';
+  }
+}
+
+function ensureSetup(): Promise<void> {
+  if (setupPromise) return setupPromise;
+  setupPromise = (async () => {
+    await TrackPlayer.setupPlayer({
+      androidAudioContentType: AndroidAudioContentType.Music,
     });
-    if (status.didJustFinish) next();
-  });
-  return player;
+    await TrackPlayer.updateOptions({
+      progressUpdateEventInterval: 1,
+      capabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious,
+        Capability.SeekTo,
+        Capability.Stop,
+      ],
+      compactCapabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious,
+      ],
+      notificationCapabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious,
+        Capability.SeekTo,
+      ],
+    });
+
+    // RNTP is the source of truth for playback; mirror it into the store so the
+    // existing store-driven UI keeps working (foreground and background).
+    TrackPlayer.addEventListener(Event.PlaybackState, ({ state }) => {
+      useAppStore.getState().setPlayback({ status: mapState(state) });
+    });
+    TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, ({ index }) => {
+      if (index != null) useAppStore.getState().setQueueIndex(index);
+    });
+    TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, ({ position, duration }) => {
+      const patch: { positionSec?: number; durationSec: number } = { durationSec: duration };
+      if (Date.now() >= seekGuardUntil) patch.positionSec = position;
+      useAppStore.getState().setPlayback(patch);
+    });
+  })();
+  return setupPromise;
 }
 
-async function ensureAudioMode() {
-  if (initialized) return;
-  initialized = true;
-  await setAudioModeAsync({
-    playsInSilentMode: true,
-    shouldPlayInBackground: true,
-    interruptionMode: 'doNotMix',
-  }).catch(() => {});
+function toRntpTrack(track: Track): RntpTrack {
+  const root = useAppStore.getState().usb.root!;
+  const artworkId = track.artworkId;
+  const artworkPath = artworkId
+    ? useAppStore.getState().library?.artworkPaths[artworkId]
+    : undefined;
+  return {
+    id: String(track.id),
+    url: documentUri(root, track.filePath),
+    title: track.title,
+    artist: track.artist || 'Unknown artist',
+    album: track.album || undefined,
+    duration: track.durationSec || undefined,
+    artwork: artworkPath ? documentUri(root, artworkPath) : undefined,
+  };
 }
 
-function loadAndPlay(index: number) {
-  const { player: p, library, usb, setQueueIndex, setPlayback } = useAppStore.getState();
-  const trackId = p.queue[index];
-  const track = trackId != null ? library?.tracks[trackId] : null;
-  if (!track || !usb.root) return;
-
-  setQueueIndex(index);
-  seekGuardUntil = 0; // fresh track: position reports are trustworthy again
-  setPlayback({ status: 'loading', positionSec: 0, durationSec: track.durationSec });
-
-  const uri = documentUri(usb.root, track.filePath);
-  const audio = ensurePlayer();
-  audio.replace({ uri });
-  audio.play();
+/** Load an ordered list of track ids into RNTP and start at startIndex. */
+async function loadIntoPlayer(trackIds: number[], startIndex: number) {
+  const { library } = useAppStore.getState();
+  if (!library) return;
+  const rntpTracks = trackIds
+    .map((id) => library.tracks[id])
+    .filter((t): t is Track => t != null)
+    .map(toRntpTrack);
+  await TrackPlayer.reset();
+  await TrackPlayer.add(rntpTracks);
+  if (startIndex > 0) await TrackPlayer.skip(startIndex);
+  await TrackPlayer.play();
 }
 
 /** Fisher-Yates, non-mutating. */
@@ -69,16 +128,16 @@ function shuffleArray<T>(items: T[]): T[] {
 
 /** Replace the queue and start playing at startIndex (in playlist order). */
 export async function playQueue(trackIds: number[], startIndex: number, source: string) {
-  await ensureAudioMode();
+  await ensureSetup();
   const { player: p, setQueue } = useAppStore.getState();
   if (p.shuffle) {
-    // Shuffle stays on across queue changes: chosen track first, rest shuffled.
     const rest = trackIds.filter((_, i) => i !== startIndex);
-    setQueue([trackIds[startIndex], ...shuffleArray(rest)], 0, source, trackIds);
-    loadAndPlay(0);
+    const order = [trackIds[startIndex], ...shuffleArray(rest)];
+    setQueue(order, 0, source, trackIds);
+    await loadIntoPlayer(order, 0);
   } else {
     setQueue(trackIds, startIndex, source);
-    loadAndPlay(startIndex);
+    await loadIntoPlayer(trackIds, startIndex);
   }
 }
 
@@ -90,68 +149,59 @@ export async function playQueueShuffled(trackIds: number[], source: string) {
 }
 
 /** Toggle shuffle for the current queue, keeping the current track playing. */
-export function toggleShuffle() {
+export async function toggleShuffle() {
   const { player: p, applyShuffle } = useAppStore.getState();
   if (p.queue.length === 0) {
     applyShuffle(p.queue, p.queueIndex, !p.shuffle);
     return;
   }
   const currentId = p.queue[p.queueIndex];
+  const position = p.positionSec;
+  let order: number[];
   if (!p.shuffle) {
-    // Current track moves to the front; everything else is shuffled after it.
     const rest = p.queue.filter((_, i) => i !== p.queueIndex);
-    applyShuffle([currentId, ...shuffleArray(rest)], 0, true);
+    order = [currentId, ...shuffleArray(rest)];
+    applyShuffle(order, 0, true);
   } else {
-    // Restore playlist order, positioned at the current track.
-    const index = Math.max(0, p.originalQueue.indexOf(currentId));
-    applyShuffle(p.originalQueue, index, false);
+    order = p.originalQueue;
+    const index = Math.max(0, order.indexOf(currentId));
+    applyShuffle(order, index, false);
   }
+  // Rebuild RNTP's queue to match the new order, resuming the same track/spot.
+  const newIndex = order.indexOf(currentId);
+  await loadIntoPlayer(order, Math.max(0, newIndex));
+  if (position > 0) await TrackPlayer.seekTo(position).catch(() => {});
 }
 
-export function toggle() {
-  if (!player) return;
+export async function toggle() {
   const { status } = useAppStore.getState().player;
-  if (status === 'playing') player.pause();
-  else player.play();
+  if (status === 'playing') await TrackPlayer.pause();
+  else await TrackPlayer.play();
 }
 
-export function next() {
-  const { queue, queueIndex } = useAppStore.getState().player;
-  if (queueIndex + 1 < queue.length) loadAndPlay(queueIndex + 1);
-  else useAppStore.getState().setPlayback({ status: 'paused' });
+export async function next() {
+  await TrackPlayer.skipToNext().catch(() => {});
 }
 
-export function previous() {
-  const { queueIndex, positionSec } = useAppStore.getState().player;
-  // Standard behavior: restart current track unless we're near its start.
+export async function previous() {
+  const { positionSec, queueIndex } = useAppStore.getState().player;
   if (positionSec > 3 || queueIndex === 0) {
-    seekTo(0); // guarded seek, so the bar snaps to 0 without flicker
-    player?.play();
-  } else if (queueIndex > 0) {
-    loadAndPlay(queueIndex - 1);
+    seekTo(0);
+  } else {
+    await TrackPlayer.skipToPrevious().catch(() => TrackPlayer.seekTo(0));
   }
 }
 
 export function seekTo(seconds: number) {
-  if (!player) return;
-  // Show the target position immediately and hold it until the seek settles.
-  seekGuardUntil = Date.now() + 1200;
+  seekGuardUntil = Date.now() + 1000;
   useAppStore.getState().setPlayback({ positionSec: seconds });
-  player
-    .seekTo(seconds)
-    .then(() => {
-      // Seek done; give the status pipeline one more tick to catch up.
-      seekGuardUntil = Math.min(seekGuardUntil, Date.now() + 300);
-    })
-    .catch(() => {
-      seekGuardUntil = 0;
-    });
+  TrackPlayer.seekTo(seconds).catch(() => {
+    seekGuardUntil = 0;
+  });
 }
 
-export function stopAndRelease() {
-  try {
-    player?.pause();
-    player?.release();
-  } catch {}
-  player = null;
+/** Stop playback and release the drive's file handle (used before eject). */
+export async function stopAndRelease() {
+  seekGuardUntil = 0;
+  await TrackPlayer.reset().catch(() => {});
 }
