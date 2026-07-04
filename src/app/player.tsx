@@ -1,8 +1,20 @@
-import { useRouter } from 'expo-router';
-import { ChevronDown, Pause, Play, Shuffle, SkipBack, SkipForward, Unplug } from 'lucide-react-native';
-import { Pressable, View } from 'react-native';
+import { Redirect, useRouter } from 'expo-router';
+import {
+  ChevronDown,
+  Pause,
+  Play,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+  Unplug,
+} from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { getColors } from 'react-native-image-colors';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Artwork } from '@/components/artwork';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import { Artwork, useArtworkUri } from '@/components/artwork';
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { Text } from '@/components/ui/text';
@@ -10,6 +22,54 @@ import { next, previous, seekTo, toggle, toggleShuffle } from '@/lib/audio/playe
 import { formatDuration } from '@/lib/format';
 import { useEject } from '@/lib/usb/useEject';
 import { useAppStore, useCurrentTrack } from '@/store';
+
+/**
+ * Spotify-style backdrop: the track's dominant color washing down from the
+ * top into the app background.
+ */
+function DominantBackdrop({ artworkId }: { artworkId?: number }) {
+  // Extract from the small variant — same palette, much cheaper to decode.
+  const uri = useArtworkUri(artworkId, false);
+  const [color, setColor] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!uri) {
+      setColor(null);
+      return;
+    }
+    getColors(uri, { fallback: '#1DB954', cache: true, key: uri })
+      .then((result) => {
+        if (cancelled || result.platform !== 'android') return;
+        setColor(result.darkVibrant ?? result.dominant ?? null);
+      })
+      .catch(() => setColor(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [uri]);
+
+  if (!color) return null;
+  return (
+    <Animated.View
+      key={color}
+      entering={FadeIn.duration(600)}
+      pointerEvents="none"
+      style={StyleSheet.absoluteFill}
+    >
+      <Svg width="100%" height="100%">
+        <Defs>
+          <LinearGradient id="backdrop" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={color} stopOpacity={0.85} />
+            <Stop offset="0.45" stopColor={color} stopOpacity={0.35} />
+            <Stop offset="0.8" stopColor={color} stopOpacity={0} />
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#backdrop)" />
+      </Svg>
+    </Animated.View>
+  );
+}
 
 export default function PlayerScreen() {
   const router = useRouter();
@@ -21,15 +81,14 @@ export default function PlayerScreen() {
   const queueSource = useAppStore((s) => s.player.queueSource);
   const shuffle = useAppStore((s) => s.player.shuffle);
 
-  if (!track) {
-    router.back();
-    return null;
-  }
+  // Ejected / queue cleared while the player was open — go home cleanly.
+  if (!track) return <Redirect href="/" />;
 
   const effectiveDuration = duration > 0 ? duration : track.durationSec;
 
   return (
     <SafeAreaView className="flex-1 bg-background">
+      <DominantBackdrop artworkId={track.artworkId} />
       <View className="flex-1 px-6">
         <View className="flex-row items-center justify-between py-3">
           <Pressable hitSlop={8} onPress={() => router.back()}>
@@ -44,7 +103,12 @@ export default function PlayerScreen() {
         </View>
 
         <View className="flex-1 items-center justify-center py-6">
-          <Artwork artworkId={track.artworkId} size={320} className="rounded-xl" />
+          <Artwork
+            artworkId={track.artworkId}
+            size={320}
+            preferHighRes
+            className="rounded-xl"
+          />
         </View>
 
         <View className="gap-1 pb-2">
@@ -83,7 +147,7 @@ export default function PlayerScreen() {
           </Pressable>
           <Pressable
             onPress={toggle}
-            className="h-18 w-18 items-center justify-center rounded-full bg-foreground"
+            className="items-center justify-center rounded-full bg-foreground"
             style={{ width: 72, height: 72 }}
           >
             {status === 'playing' ? (

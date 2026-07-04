@@ -20,7 +20,6 @@ export default function RootLayout() {
         <Stack.Screen name="library/index" options={{ title: 'Library' }} />
         <Stack.Screen name="library/tracks" options={{ title: 'All Tracks' }} />
         <Stack.Screen name="library/node/[id]" options={{ title: '' }} />
-        <Stack.Screen name="library/files" options={{ title: 'Files' }} />
         <Stack.Screen
           name="player"
           options={{ presentation: 'modal', headerShown: false }}

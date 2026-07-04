@@ -28,6 +28,7 @@ function mapState(state: State | undefined): PlaybackStatus {
     case State.Paused:
     case State.Stopped:
     case State.Ready:
+    case State.Ended:
       return 'paused';
     case State.Loading:
     case State.Buffering:
@@ -44,7 +45,7 @@ function ensureSetup(): Promise<void> {
       androidAudioContentType: AndroidAudioContentType.Music,
     });
     await TrackPlayer.updateOptions({
-      progressUpdateEventInterval: 1,
+      progressUpdateEventInterval: 0.5,
       capabilities: [
         Capability.Play,
         Capability.Pause,
@@ -71,10 +72,25 @@ function ensureSetup(): Promise<void> {
     // RNTP is the source of truth for playback; mirror it into the store so the
     // existing store-driven UI keeps working (foreground and background).
     TrackPlayer.addEventListener(Event.PlaybackState, ({ state }) => {
-      useAppStore.getState().setPlayback({ status: mapState(state) });
+      const mapped = mapState(state);
+      const prev = useAppStore.getState().player.status;
+      // ExoPlayer passes through Buffering/Loading/Ready during seeks and
+      // track transitions; if we were playing, stay 'playing' so the
+      // play/pause button doesn't flicker. Real pauses/stops emit
+      // Paused/Stopped/Ended explicitly and pass straight through.
+      const transitional = mapped === 'loading' || state === State.Ready;
+      const status = transitional && prev === 'playing' ? 'playing' : mapped;
+      useAppStore.getState().setPlayback({ status });
     });
-    TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, ({ index }) => {
-      if (index != null) useAppStore.getState().setQueueIndex(index);
+    TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, (event) => {
+      if (event.index != null) useAppStore.getState().setQueueIndex(event.index);
+      // Snap the playhead to the top of the new track immediately instead of
+      // letting it sit at the old position until the next progress tick.
+      seekGuardUntil = 0;
+      useAppStore.getState().setPlayback({
+        positionSec: 0,
+        durationSec: event.track?.duration ?? 0,
+      });
     });
     TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, ({ position, duration }) => {
       const patch: { positionSec?: number; durationSec: number } = { durationSec: duration };

@@ -62,6 +62,16 @@ export async function restoreUsbRoot(): Promise<UsbRoot | null> {
   }
 }
 
+/** True while the granted root is still mounted and readable. */
+export async function canReadRoot(root: UsbRoot): Promise<boolean> {
+  try {
+    await SAF.readDirectoryAsync(root.treeUri);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Forget the persisted root so the app won't auto-reconnect on next launch. */
 export async function clearPersistedRoot(): Promise<void> {
   await FileSystem.deleteAsync(STATE_FILE, { idempotent: true }).catch(() => {});
@@ -122,25 +132,3 @@ export async function readFileBytes(uri: string): Promise<Uint8Array> {
   return base64ToBytes(b64);
 }
 
-export interface TreeEntry {
-  name: string;
-  uri: string;
-  isDirectory: boolean;
-}
-
-/** List one directory level of the granted tree (for the file-tree browser). */
-export async function listDirectory(dirUri: string): Promise<TreeEntry[]> {
-  const childUris = await SAF.readDirectoryAsync(dirUri);
-  const entries = await Promise.all(
-    childUris.map(async (uri): Promise<TreeEntry> => {
-      const info = await FileSystem.getInfoAsync(uri).catch(() => null);
-      const docId = decodeURIComponent(uri.split('/document/').pop() ?? uri);
-      const name = docId.split('/').pop() ?? docId;
-      return { name, uri, isDirectory: info?.exists ? !!info.isDirectory : false };
-    }),
-  );
-  entries.sort((a, b) =>
-    a.isDirectory === b.isDirectory ? a.name.localeCompare(b.name) : a.isDirectory ? -1 : 1,
-  );
-  return entries;
-}

@@ -7,6 +7,7 @@ import { stopAndRelease } from '@/lib/audio/player';
 import { parsePdb } from '@/lib/pdb/parse';
 import { useAppStore } from '@/store';
 import {
+  canReadRoot,
   clearPersistedRoot,
   findExportPdb,
   readFileBytes,
@@ -50,6 +51,20 @@ export async function reconnectUsb(): Promise<boolean> {
   if (!root) return false;
   await scanRoot(root);
   return true;
+}
+
+/**
+ * Check that the connected USB is still physically present; if it was yanked
+ * without ejecting, release playback and reset so the UI returns to the
+ * connect screen instead of showing a dead library.
+ */
+export async function verifyUsbAlive(): Promise<boolean> {
+  const { usb } = useAppStore.getState();
+  if (!usb.root) return false;
+  if (await canReadRoot(usb.root)) return true;
+  await stopAndRelease();
+  useAppStore.getState().reset();
+  return false;
 }
 
 /**

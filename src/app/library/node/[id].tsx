@@ -1,4 +1,4 @@
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Shuffle } from 'lucide-react-native';
 import { FlatList, View } from 'react-native';
 import { NodeRow } from '@/components/node-row';
@@ -18,14 +18,11 @@ export default function NodeScreen() {
     (s) => s.player.queue[s.player.queueIndex] ?? null,
   );
 
-  const node = library?.playlistNodes[Number(id)];
-  if (!library || !node) {
-    return (
-      <View className="flex-1 items-center justify-center bg-background">
-        <Text variant="muted">Not found.</Text>
-      </View>
-    );
-  }
+  // After eject/unplug the library is gone — bounce home instead of showing
+  // a dead page with an empty title.
+  if (!library) return <Redirect href="/" />;
+  const node = library.playlistNodes[Number(id)];
+  if (!node) return <Redirect href="/library" />;
 
   return (
     <View className="flex-1 bg-background">

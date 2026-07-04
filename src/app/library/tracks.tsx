@@ -1,3 +1,4 @@
+import { Redirect } from 'expo-router';
 import { Search, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, TextInput, View } from 'react-native';
@@ -28,7 +29,7 @@ export default function AllTracksScreen() {
     });
   }, [library, query]);
 
-  if (!library) return null;
+  if (!library) return <Redirect href="/" />;
 
   return (
     <View className="flex-1 bg-background">

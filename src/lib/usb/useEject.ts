@@ -21,6 +21,11 @@ export function useEject() {
           style: 'destructive',
           onPress: async () => {
             await ejectUsb();
+            // Collapse any pushed screens (playlist, player, ...) so back
+            // can't land on a dead page, then land on the connect screen.
+            try {
+              router.dismissAll();
+            } catch {}
             router.replace('/');
           },
         },
